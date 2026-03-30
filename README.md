@@ -1,4 +1,4 @@
-markdown
+我是谁我在干嘛
 # AstrBot 洗头频率追踪插件 (astrbot_plugin_shampoo_tracker)
 
 ## 插件简介
