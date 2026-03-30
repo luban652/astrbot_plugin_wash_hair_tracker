@@ -1,0 +1,56 @@
+{
+  "max_history_display": {
+    "description": "查询洗头情况时单次显示的最大记录条数",
+    "type": "int",
+    "hint": "为了防止消息过长，建议设置一个合理的展示上限（如20条）。",
+    "default": 10,
+    "obvious_hint": false
+  },
+  "datetime_format": {
+    "description": "日期和时间的显示格式",
+    "type": "string",
+    "hint": "遵循 Python strftime 规范。例如：%Y-%m-%d %H:%M:%S",
+    "default": "%Y-%m-%d %H:%M:%S",
+    "obvious_hint": false
+  },
+  "enable_consecutive_check": {
+    "description": "开启连续洗头提醒",
+    "type": "bool",
+    "hint": "如果短时间内（如1小时内）重复记录，插件会提示是否操作重复。",
+    "default": true,
+    "obvious_hint": false
+  },
+  "duplicate_threshold_minutes": {
+    "description": "判定为重复操作的时间阈值（分钟）",
+    "type": "int",
+    "hint": "在此分钟数内连续发送指令将被视为误触或重复记录。",
+    "default": 30,
+    "obvious_hint": false
+  },
+  "stats_summary_template": {
+    "description": "查询情况时的统计信息模板",
+    "type": "text",
+    "hint": "支持使用占位符，例如 {count} 代表总次数，{last_time} 代表上次时间。",
+    "default": "统计报告：\n您总共洗头 {count} 次。\n上次洗头时间：{last_time}\n坚持个人卫生，从我做起！",
+    "obvious_hint": true
+  },
+  "storage_path": {
+    "description": "数据库存储相对路径",
+    "type": "string",
+    "hint": "默认存储在 data 目录下，通常无需修改。",
+    "default": "data/astrbot_plugin_shampoo_tracker/shampoo.db",
+    "obvious_hint": false,
+    "invisible": true
+  },
+  "week_start_day": {
+    "description": "周统计的起始日",
+    "type": "string",
+    "hint": "用于未来可能的周报功能，定义一周从哪天开始。",
+    "options": [
+      "Monday",
+      "Sunday"
+    ],
+    "default": "Monday",
+    "obvious_hint": false
+  }
+}

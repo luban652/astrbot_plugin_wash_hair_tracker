@@ -1,0 +1,5 @@
+name: astrbot_plugin_shampoo_tracker
+author: AstrBot-Assistant
+description: 记录并统计用户的洗头频率，支持记录每次洗头的时间戳并提供历史记录查询功能。
+version: 1.0.0
+repo: https://github.com/user/astrbot_plugin_shampoo_tracker
