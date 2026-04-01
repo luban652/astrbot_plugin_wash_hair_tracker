@@ -1,56 +1,69 @@
 {
-  "max_history_display": {
-    "description": "查询洗头情况时单次显示的最大记录条数",
+  "storage_path": {
+    "description": "数据库文件存储路径",
+    "type": "string",
+    "hint": "插件数据的持久化存储位置，默认为 data/wash_hair_tracker/data.db",
+    "default": "data/wash_hair_tracker/data.db",
+    "obvious_hint": false
+  },
+  "max_record_count": {
+    "description": "单个用户最大记录条数",
     "type": "int",
-    "hint": "为了防止消息过长，建议设置一个合理的展示上限（如20条）。",
-    "default": 10,
+    "hint": "为了防止数据库过大，可以限制单个用户保存的洗头记录上限。设置为 0 表示不限制。",
+    "default": 100,
     "obvious_hint": false
   },
   "datetime_format": {
-    "description": "日期和时间的显示格式",
+    "description": "日期时间显示格式",
     "type": "string",
-    "hint": "遵循 Python strftime 规范。例如：%Y-%m-%d %H:%M:%S",
+    "hint": "查询记录时时间的展示格式，参考 Python strftime 格式。",
     "default": "%Y-%m-%d %H:%M:%S",
     "obvious_hint": false
   },
-  "enable_consecutive_check": {
-    "description": "开启连续洗头提醒",
+  "enable_group_isolation": {
+    "description": "启用群组隔离",
     "type": "bool",
-    "hint": "如果短时间内（如1小时内）重复记录，插件会提示是否操作重复。",
-    "default": true,
-    "obvious_hint": false
-  },
-  "duplicate_threshold_minutes": {
-    "description": "判定为重复操作的时间阈值（分钟）",
-    "type": "int",
-    "hint": "在此分钟数内连续发送指令将被视为误触或重复记录。",
-    "default": 30,
-    "obvious_hint": false
-  },
-  "stats_summary_template": {
-    "description": "查询情况时的统计信息模板",
-    "type": "text",
-    "hint": "支持使用占位符，例如 {count} 代表总次数，{last_time} 代表上次时间。",
-    "default": "统计报告：\n您总共洗头 {count} 次。\n上次洗头时间：{last_time}\n坚持个人卫生，从我做起！",
+    "hint": "开启后，用户在不同群聊中的洗头记录将独立分开；关闭则全局按用户ID统一记录。",
+    "default": false,
     "obvious_hint": true
   },
-  "storage_path": {
-    "description": "数据库存储相对路径",
+  "record_success_msg": {
+    "description": "记录成功回复模板",
     "type": "string",
-    "hint": "默认存储在 data 目录下，通常无需修改。",
-    "default": "data/astrbot_plugin_shampoo_tracker/shampoo.db",
-    "obvious_hint": false,
-    "invisible": true
-  },
-  "week_start_day": {
-    "description": "周统计的起始日",
-    "type": "string",
-    "hint": "用于未来可能的周报功能，定义一周从哪天开始。",
-    "options": [
-      "Monday",
-      "Sunday"
-    ],
-    "default": "Monday",
+    "hint": "记录洗头时间成功后的提示语，可以使用 {time} 占位符。",
+    "default": "已为你记录本次洗头时间：{time}。",
     "obvious_hint": false
+  },
+  "list_header_msg": {
+    "description": "历史记录列表页眉",
+    "type": "string",
+    "hint": "查询历史记录时的开头文字。",
+    "default": "📅 你的洗头历史记录：",
+    "obvious_hint": false
+  },
+  "clear_confirm_required": {
+    "description": "清空记录二次确认",
+    "type": "bool",
+    "hint": "开启后，执行 /洗头清空 需要再次输入指令确认，防止误删。",
+    "default": true,
+    "obvious_hint": true
+  },
+  "reminder_settings": {
+    "description": "洗头提醒配置（进阶）",
+    "type": "object",
+    "hint": "关于洗头周期提醒的相关设置。",
+    "items": {
+      "enable_reminder": {
+        "description": "是否开启长时间未洗头提醒",
+        "type": "bool",
+        "default": false
+      },
+      "threshold_days": {
+        "description": "提醒阈值（天）",
+        "type": "int",
+        "hint": "超过多少天未记录洗头则触发提醒。",
+        "default": 3
+      }
+    }
   }
 }
