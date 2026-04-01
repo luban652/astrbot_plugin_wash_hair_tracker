@@ -1,157 +1,155 @@
-import time
+import sqlite3
 import datetime
-import asyncio
 import aiosqlite
 from pathlib import Path
+from typing import Tuple
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register, StarTools
-from astrbot.api import logger
+from astrbot.api import logger, AstrBotConfig
 
-@register("shampoo_tracker", "AstrBot-Assistant", "记录并统计用户的洗头频率，支持记录每次洗头的时间戳并提供历史记录查询功能。", "1.1.0", "https://github.com/user/astrbot_plugin_shampoo_tracker")
-class ShampooTrackerPlugin(Star):
-    def __init__(self, context: Context, config: dict):
+@register("astrbot_plugin_wash_hair_tracker", "AstrBot", "记录并管理用户的洗头频率，支持多用户独立存储。", "1.1.0", "https://github.com/astrbot/astrbot_plugin_wash_hair_tracker")
+class WashHairTrackerPlugin(Star):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
-        self.db = None
-        self._lock = asyncio.Lock()
-        
-        # 修正：使用 StarTools.get_data_dir() 获取数据目录，该方法返回 Path 对象
-        self.data_dir = StarTools.get_data_dir()
-        self.db_path = self.data_dir / "shampoo.db"
+        # 修复：使用 StarTools.get_data_dir() 获取规范的数据目录
+        data_dir = StarTools.get_data_dir()
+        self.db_path = data_dir / "wash_hair.db"
+        self._init_db_sync()
 
-    async def _get_db(self) -> aiosqlite.Connection:
-        """懒加载并初始化数据库连接，确保异步安全"""
-        async with self._lock:
-            if self.db is not None:
-                return self.db
+    def _init_db_sync(self):
+        """同步初始化数据库环境，确保目录存在"""
+        try:
+            # 修复：移除对 os 的依赖，使用 Path 对象
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # 异步环境下确保目录存在
-            if not self.data_dir.exists():
-                self.data_dir.mkdir(parents=True, exist_ok=True)
-                
-            try:
-                # aiosqlite.connect 接受 Path 对象
-                self.db = await aiosqlite.connect(self.db_path)
-                # 开启 WAL 模式提高并发性能
-                await self.db.execute("PRAGMA journal_mode=WAL;")
-                await self.db.execute('''
-                    CREATE TABLE IF NOT EXISTS shampoo_logs (
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS wash_records (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id TEXT,
-                        timestamp INTEGER,
-                        formatted_time TEXT
+                        user_id TEXT NOT NULL,
+                        group_id TEXT DEFAULT '',
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
-                await self.db.commit()
-                logger.info(f"洗头追踪插件数据库初始化成功: {self.db_path}")
-                return self.db
-            except Exception as e:
-                logger.error(f"洗头追踪插件数据库初始化异常: {type(e).__name__}: {str(e)}")
-                return None
+                conn.commit()
+            logger.info(f"洗头记录器数据库初始化成功: {self.db_path}")
+        except Exception as e:
+            logger.error(f"数据库初始化失败: {str(e)}")
+
+    def _get_target_id(self, event: AstrMessageEvent) -> Tuple[str, str]:
+        """获取用户ID和群组ID（根据配置决定是否启用群组隔离）"""
+        user_id = event.get_sender_id()
+        group_id = ""
+        if self.config.get("enable_group_isolation", False):
+            # 兼容性处理：优先从 event 获取 group_id
+            group_id = getattr(event, "group_id", "") or ""
+        return user_id, group_id
 
     @filter.command("洗头")
-    async def record_shampoo(self, event: AstrMessageEvent):
-        """记录一次洗头行为"""
-        db = await self._get_db()
-        if not db:
-            yield event.plain_result("数据库连接失败，请检查插件后台日志。")
-            return
-
-        user_id = event.unified_msg_origin
-        now_ts = int(time.time())
-        dt_format = self.config.get("datetime_format", "%Y-%m-%d %H:%M:%S")
-        now_str = datetime.datetime.fromtimestamp(now_ts).strftime(dt_format)
-
-        # 连续洗头检查逻辑
-        if self.config.get("enable_consecutive_check", True):
-            threshold = self.config.get("duplicate_threshold_minutes", 30)
-            try:
-                async with db.execute(
-                    "SELECT timestamp FROM shampoo_logs WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1", 
-                    (user_id,)
-                ) as cursor:
-                    last_record = await cursor.fetchone()
-                    if last_record and (now_ts - last_record[0]) < (threshold * 60):
-                        yield event.plain_result(f"提示：您在 {threshold} 分钟内已有记录，请确认是否重复操作。")
-            except Exception as e:
-                logger.warning(f"重复检查执行失败: {e}")
-
-        try:
-            await db.execute(
-                "INSERT INTO shampoo_logs (user_id, timestamp, formatted_time) VALUES (?, ?, ?)",
-                (user_id, now_ts, now_str)
-            )
-            await db.commit()
-
-            async with db.execute(
-                "SELECT COUNT(*) FROM shampoo_logs WHERE user_id = ?", (user_id,)
-            ) as cursor:
-                count_row = await cursor.fetchone()
-                count = count_row[0] if count_row else 1
-
-            yield event.plain_result(f"已记录！当前时间：{now_str}。这是您的第 {count} 次洗头。")
-        except Exception as e:
-            logger.error(f"写入记录失败: {e}")
-            yield event.plain_result("记录失败，数据库写入错误。")
-
-    @filter.command("洗头情况")
-    async def show_stats(self, event: AstrMessageEvent):
-        """查看洗头历史记录和统计"""
-        db = await self._get_db()
-        if not db:
-            yield event.plain_result("数据库服务不可用。")
-            return
-
-        user_id = event.unified_msg_origin
-        max_display = self.config.get("max_history_display", 10)
+    async def record_wash(self, event: AstrMessageEvent):
+        """记录一次洗头时间"""
+        user_id, group_id = self._get_target_id(event)
+        now = datetime.datetime.now()
         
         try:
-            async with db.execute(
-                "SELECT COUNT(*), MAX(formatted_time) FROM shampoo_logs WHERE user_id = ?", 
-                (user_id,)
-            ) as cursor:
-                summary = await cursor.fetchone()
-                total_count = summary[0] if summary else 0
-                last_time = summary[1] if summary and summary[1] else "无记录"
+            # 修复：使用 aiosqlite 进行异步数据库操作
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    "INSERT INTO wash_records (user_id, group_id, timestamp) VALUES (?, ?, ?)",
+                    (user_id, group_id, now)
+                )
+                
+                max_count = self.config.get("max_record_count", 100)
+                if max_count > 0:
+                    # 修复：SQL 注入风险，使用参数化查询 OFFSET
+                    # 注意：SQLite 的 OFFSET 必须配合 LIMIT 使用，这里 LIMIT -1 代表无上限
+                    await db.execute(
+                        """DELETE FROM wash_records 
+                           WHERE id IN (
+                               SELECT id FROM wash_records 
+                               WHERE user_id = ? AND group_id = ? 
+                               ORDER BY timestamp DESC 
+                               LIMIT -1 OFFSET ?
+                           )""",
+                        (user_id, group_id, max_count)
+                    )
+                await db.commit()
+            
+            dt_format = self.config.get("datetime_format", "%Y-%m-%d %H:%M:%S")
+            time_str = now.strftime(dt_format)
+            msg_tmpl = self.config.get("record_success_msg", "已为你记录本次洗头时间：{time}。")
+            yield event.plain_result(msg_tmpl.format(time=time_str))
+            
+        except Exception as e:
+            logger.error(f"记录洗头失败: {str(e)}")
+            yield event.plain_result("记录失败，请检查后台日志。")
 
-            if total_count == 0:
-                yield event.plain_result("您还没有洗头记录。发送 /洗头 开启第一条记录吧！")
+    @filter.command("洗头情况")
+    async def query_wash(self, event: AstrMessageEvent):
+        """查询历史记录"""
+        user_id, group_id = self._get_target_id(event)
+        dt_format = self.config.get("datetime_format", "%Y-%m-%d %H:%M:%S")
+        
+        try:
+            # 修复：使用 aiosqlite 进行异步查询
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute(
+                    "SELECT timestamp FROM wash_records WHERE user_id = ? AND group_id = ? ORDER BY timestamp ASC",
+                    (user_id, group_id)
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            
+            if not rows:
+                yield event.plain_result("你还没有任何洗头记录哦。")
                 return
 
-            tmpl = self.config.get("stats_summary_template", "统计报告：\n总共洗头 {count} 次。\n上次：{last_time}")
-            resp_text = tmpl.format(count=total_count, last_time=last_time)
+            header = self.config.get("list_header_msg", "📅 你的洗头历史记录：")
+            result_lines = [header]
             
-            actual_display = min(total_count, max_display)
-            resp_text += f"\n\n最近 {actual_display} 条记录："
+            for idx, (ts_val,) in enumerate(rows, 1):
+                try:
+                    # 兼容：aiosqlite 可能返回 str 或 datetime 对象
+                    if isinstance(ts_val, str):
+                        dt = datetime.datetime.fromisoformat(ts_val)
+                    else:
+                        dt = ts_val
+                    formatted_time = dt.strftime(dt_format)
+                except Exception:
+                    formatted_time = str(ts_val)
+                result_lines.append(f"{idx}. {formatted_time}")
             
-            async with db.execute(
-                "SELECT formatted_time FROM shampoo_logs WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
-                (user_id, max_display)
-            ) as cursor:
-                rows = await cursor.fetchall()
-                for idx, row in enumerate(rows, 1):
-                    resp_text += f"\n{idx}. {row[0]}"
-
-            yield event.plain_result(resp_text)
+            yield event.plain_result("\n".join(result_lines))
+            
         except Exception as e:
-            logger.error(f"统计查询失败: {e}")
-            yield event.plain_result("查询统计数据时发生错误。")
+            logger.error(f"查询记录失败: {str(e)}")
+            yield event.plain_result("查询失败，请稍后再试。")
 
-    def terminate(self):
-        """
-        插件卸载时的资源释放。
-        考虑到异步环境，若 self.db 存在，尝试调度关闭任务。
-        """
-        if self.db:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self.db.close())
-                else:
-                    # 如果 loop 已关闭，同步关闭可能不完全，但 aiosqlite 会随进程结束释放连接
-                    pass
-            except Exception as e:
-                logger.debug(f"数据库关闭异常: {e}")
-            finally:
-                self.db = None
-                logger.info("洗头追踪插件已释放数据库资源。")
+    @filter.command("洗头清空")
+    async def clear_wash(self, event: AstrMessageEvent):
+        """清空记录"""
+        user_id, group_id = self._get_target_id(event)
+        
+        if self.config.get("clear_confirm_required", True):
+            confirm_keyword = "确认清空"
+            # 使用更健壮的文本匹配方式
+            if confirm_keyword not in event.message_str:
+                yield event.plain_result(f"⚠️ 警告：该操作将删除你所有的记录且不可恢复。如果确定，请发送：\n/洗头清空 {confirm_keyword}")
+                return
+
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    "DELETE FROM wash_records WHERE user_id = ? AND group_id = ?",
+                    (user_id, group_id)
+                )
+                await db.commit()
+            yield event.plain_result("已成功清空你的所有洗头记录。")
+        except Exception as e:
+            logger.error(f"清空记录失败: {str(e)}")
+            yield event.plain_result("清空操作失败。")
+
+    async def terminate(self):
+        """插件卸载处理"""
+        logger.info("洗头记录器插件已停用。")
